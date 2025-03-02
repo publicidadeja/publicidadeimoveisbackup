@@ -31,6 +31,19 @@ Route::group(['namespace' => 'Srapid\RealEstate\Http\Controllers', 'middleware' 
                 'uses'       => 'CrmController@deletes',
                 'permission' => 'crm.destroy',
             ]);
+            
+            // Kanban routes
+            Route::get('kanban-data', [
+                'as'         => 'kanban-data',
+                'uses'       => 'CrmController@getKanbanData',
+                'permission' => 'crm.index',
+            ]);
+            
+            Route::post('update-status', [
+                'as'         => 'update-status',
+                'uses'       => 'CrmController@updateStatus',
+                'permission' => 'crm.edit',
+            ]);
         });
 
         Route::group(['prefix' => 'properties', 'as' => 'property.'], function () {

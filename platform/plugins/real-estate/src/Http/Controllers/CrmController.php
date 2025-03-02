@@ -44,7 +44,23 @@ class CrmController extends BaseController
     {
         page_title()->setTitle(trans('plugins/real-estate::crm.name'));
 
-        return $table->renderTable();
+        // Get lead counts by status for the dashboard
+        $leadsByStatus = $this->crmRepository->getModel()
+            ->select(['lead_color', \DB::raw('count(*) as total')])
+            ->groupBy('lead_color')
+            ->get()
+            ->pluck('total', 'lead_color')
+            ->toArray();
+            
+        // Get default values for any missing status
+        $leadStatuses = [
+            'red' => $leadsByStatus['red'] ?? 0,      // Hot leads
+            'blue' => $leadsByStatus['blue'] ?? 0,    // Cold leads
+            'yellow' => $leadsByStatus['yellow'] ?? 0, // In negotiation
+            'gray' => $leadsByStatus['gray'] ?? 0,     // Lost sales
+        ];
+        
+        return view('plugins/real-estate::crm.dashboard', compact('table', 'leadStatuses'));
     }
 
     /**
@@ -158,5 +174,77 @@ class CrmController extends BaseController
         }
 
         return $response->setMessage(trans('core/base::notices.delete_success_message'));
+    }
+    
+    /**
+     * Get Kanban board data
+     * 
+     * @return JsonResponse
+     */
+    public function getKanbanData(Request $request)
+    {
+        try {
+            $leads = $this->crmRepository->getModel()
+                ->select([
+                    're_crm.id',
+                    're_crm.name',
+                    're_crm.phone',
+                    're_crm.email',
+                    're_crm.content',
+                    're_crm.property_value',
+                    're_crm.category',     
+                    're_crm.lead_color',   
+                ])
+                ->get();
+                
+            $leadsByStatus = [
+                'red' => [],
+                'blue' => [],
+                'yellow' => [],
+                'gray' => []
+            ];
+            
+            $categoryMap = CrmTable::CATEGORIES;
+            
+            foreach ($leads as $lead) {
+                $lead->category_text = $categoryMap[$lead->category] ?? $lead->category;
+                $lead->formatted_property_value = $lead->property_value ? 'R$ ' . number_format($lead->property_value, 2, ',', '.') : null;
+                $lead->edit_url = route('crm.edit', $lead->id);
+                
+                $leadsByStatus[$lead->lead_color ?? 'blue'][] = $lead;
+            }
+            
+            return response()->json($leadsByStatus);
+        } catch (Exception $exception) {
+            return response()->json([
+                'error' => true,
+                'message' => $exception->getMessage()
+            ], 500);
+        }
+    }
+    
+    /**
+     * Update lead status via AJAX
+     * 
+     * @param Request $request
+     * @param BaseHttpResponse $response
+     * @return BaseHttpResponse
+     */
+    public function updateStatus(Request $request, BaseHttpResponse $response)
+    {
+        try {
+            $id = $request->input('id');
+            $newStatus = $request->input('lead_color');
+            
+            $lead = $this->crmRepository->findOrFail($id);
+            $lead->lead_color = $newStatus;
+            $this->crmRepository->createOrUpdate($lead);
+            
+            return $response->setMessage('Status atualizado com sucesso');
+        } catch (Exception $exception) {
+            return $response
+                ->setError()
+                ->setMessage($exception->getMessage());
+        }
     }
 }
